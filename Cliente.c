@@ -3,7 +3,6 @@
 Servico criarServico(char *hora, char *local, char *distancia)
 {
     Servico servico;
-
     sscanf(hora, "%d:%d", &servico.hora.horas, &servico.hora.minutos);
 
     strncpy(servico.local, local, sizeof(servico.local) - 1);
