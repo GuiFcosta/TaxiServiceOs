@@ -12,7 +12,7 @@
 #define FIFO_CLIENTE "/tmp/fifo_cliente_%d"
 
 // Constantes
-#define MAX_UTILIZADORES 30 
+#define MAX_UTILIZADORES 30
 #define NVEICULOS 10
 #define MAX_USERNAME_TAM 64
 #define MAX_RESPOSTA_TAM 128
@@ -20,28 +20,37 @@
 #define MAX_ARGUMENTOS 5
 
 // Estruturas
-typedef struct{
+typedef struct
+{
     int minutos, horas;
 } Hora;
 
-typedef struct{
+typedef struct
+{
     Hora hora;
     char local[MAX_CHARACTERS];
     float distancia;
 } Servico;
 
 // Estrutura de mensagem correspondente a um pedido cliente -> servidor
-typedef struct{
+typedef struct
+{
     pid_t pid_cliente;
     char fifo_cliente[MAX_CHARACTERS];
     char username[MAX_CHARACTERS];
 } Cliente;
 
-int agendar(int fd_servidor, Cliente pedido, Servico servico);
-int consultar(int fd_servidor, int id);
-int cancelar(int fd_servidor, Cliente pedido);
+// Funções do Cliente
+int escolheServico(int fd_servidor, int fd_cliente, Cliente cliente);
+
+// Funções do Controlador
+int agendar(Cliente cliente, Servico servico);
+int consultar(Cliente cliente, int id);
+int cancelar(Cliente cliente);
+int filtraPedido(char pedido[], Cliente cliente);
+int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente);
+
+// Funções partilhadas
 Servico criarServico(char *hora, char *local, char *distancia);
-int escolheServico(int fd_servidor, int fd_cliente, Cliente pedido);
-int executarOperacao(char *argumentos[], int n_argumentos, int fd_servidor, int fd_cliente, Cliente pedido);
 void criarFIFO(const char *fifo_name);
 int abrirFIFO(const char *fifo_name, bool write);
