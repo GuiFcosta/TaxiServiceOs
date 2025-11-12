@@ -1,35 +1,44 @@
 #include "Utils.h"
 
-int escolheServico(int fd_servidor, int fd_cliente, Cliente cliente)
+int escolheServico(Cliente cliente)
 {
-    char escolha[MAX_CHARACTERS];
-    char resposta[MAX_CHARACTERS];
+    Pedido pedido;
+    char resposta[MAX_CHARACTERS]; // guarda a resposta do servidor
+
+    memset(&pedido, 0, sizeof(Pedido));
 
     printf("[CLIENTE] Escolha alguma das opções abaixo:\n");
     printf("- agendar <hora> <local> <distancia>\n- consultar\n- cancelar <id>\n- terminar\n");
 
-    if (fgets(escolha, sizeof(escolha), stdin) == NULL)
+    if (fgets(pedido.comando, sizeof(pedido.comando), stdin) == NULL)
     {
         printf("[ERRO] ao ler a entrada\n");
-        return 1;
+        return 0;
     }
-    escolha[strcspn(escolha, "\n")] = 0; // remover o '\n' do final da string
+    pedido.comando[strcspn(pedido.comando, "\n")] = 0; // remover o '\n' do final da string
 
-    if (strcmp(escolha, "terminar") == 0)
+    if (strcmp(pedido.comando, "terminar") == 0)
     {
         printf("A sair...\n");
         return 0;
     }
 
-    fd_servidor = abrirFIFO(FIFO_SERVIDOR, true);
-    write(fd_servidor, &escolha, sizeof(escolha));
+    pedido.pid_cliente = cliente.pid_cliente;
+
+    int fd_servidor = abrirFIFO(FIFO_SERVIDOR, true);
+    write(fd_servidor, &pedido, sizeof(Pedido));
     close(fd_servidor);
 
-    fd_cliente = abrirFIFO(cliente.fifo_cliente, false);
+    int fd_cliente = abrirFIFO(cliente.fifo_cliente, false);
     memset(resposta, 0, sizeof(resposta));
-    read(fd_cliente, &resposta, sizeof(resposta));
-    if (strcmp(resposta, "aceite") == 0)
-        return 1;
+    if(read(fd_cliente, &resposta, sizeof(resposta)) < 0){
+        printf("[ERRO] ao ler a resposta do servidor\n");
+        return 0;
+    }
+    printf("[CONTROLADOR]: %s\n", resposta);
+    close(fd_cliente);
+
+    return 1;
 }
 
 int main(int argc, char *argv[])
@@ -52,7 +61,7 @@ int main(int argc, char *argv[])
     snprintf(cliente.fifo_cliente, sizeof(cliente.fifo_cliente), FIFO_CLIENTE, cliente.pid_cliente);
     criarFIFO(cliente.fifo_cliente); // cria o FIFO do cliente
 
-    printf("[CLIENTE]: Fazendo cliente de conexão para o servidor...\n");
+    printf("[CLIENTE]: Fazendo pedido de conexão para o servidor...\n");
     sleep(3);
     strcpy(cliente.username, argv[1]);
 
@@ -68,23 +77,14 @@ int main(int argc, char *argv[])
     close(fd_cliente);
 
     printf("[CONTROLADOR]: %s\n", mensagem);
-    unlink(cliente.fifo_cliente);
 
-    if (strcmp(mensagem, "registado") == 0)
+    if (strcmp(mensagem, REGISTADO) == 0)
     {
         printf("[CLIENTE]: Registo efetuado com sucesso.\n");
-        while (1)
-        {
-            servico = escolheServico(fd_servidor, fd_cliente, cliente);
-            if (servico)
-            {
-                continue;
-            }
-            break;
-        }
+        while (escolheServico(cliente)){ /* continua enquanto a função retornar 1*/ }
         printf("[CLIENTE]: A sair...\n");
     }
-    else if (strcmp(mensagem, "negado") == 0)
+    else if (strcmp(mensagem, NEGADO) == 0)
     {
         printf("[CLIENTE]: Username em uso.\n");
     }

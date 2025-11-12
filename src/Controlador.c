@@ -12,7 +12,8 @@ bool verificaUserName(int num_clientes, char clientes[][MAX_USERNAME_TAM], char 
     return false;
 }
 
-int enviarVeiculo(Servico agendamentos[]){
+int enviarVeiculo(Servico agendamentos[])
+{
     int veiculo = 111;
 
     // Recebe: lista de servicos agendados, cliente que agendou o serviço
@@ -32,6 +33,8 @@ int agendar(Cliente cliente, Servico servico)
     close(fd_cliente);
 
     // TODO: Adicionar o agendamento a uma lista
+    // v1: 1 array com todos os agendamentos e cada agendamento com o cliente associado
+    // v2: 1 array de listas ligadas, cada lista ligada associada a um cliente
 
     return 200;
 }
@@ -107,7 +110,7 @@ int main()
     int fd_servidor, fd_cliente;
     int num_clientes = 0;
     char clientes[MAX_UTILIZADORES][MAX_USERNAME_TAM];
-    char pedido[MAX_CHARACTERS];
+    char comando[MAX_CHARACTERS];
     int res;
 
     criarFIFO(FIFO_SERVIDOR); // cria o FIFO do servidor
@@ -116,51 +119,70 @@ int main()
 
     while (1)
     {
+        char buffer[sizeof(Cliente) > sizeof(Pedido) ? sizeof(Cliente) : sizeof(Pedido)];
+
         fd_servidor = abrirFIFO(FIFO_SERVIDOR, false); // abrir o FIFO do servidor para ler pedidos de conexao
 
-        int bytes = read(fd_servidor, &cliente, sizeof(Cliente));
+        int bytes = read(fd_servidor, buffer, sizeof(buffer));
+
         close(fd_servidor);
 
-        if (bytes < 0)
+        if (bytes <= 0)
             continue;
 
-        printf("[CONTROLADOR]: Pedido de conexao de <%s> FIFO: %s\n",
-               cliente.username, cliente.fifo_cliente);
-
-        bool nomeEmUso = verificaUserName(num_clientes, clientes, cliente.username);
-
-        fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
-
-        if (nomeEmUso)
+        if (bytes == (int)sizeof(Cliente))
         {
-            char mensagem[MAX_CHARACTERS] = "negado";
-            write(fd_cliente, mensagem, strlen(mensagem));
-            printf("[CONTROLADOR]: Nome em uso\n");
+            memcpy(&cliente, buffer, sizeof(Cliente));
+
+            printf("[CONTROLADOR]: Pedido de conexao de <%s> FIFO: %s\n",
+                   cliente.username, cliente.fifo_cliente);
+
+            bool nomeEmUso = verificaUserName(num_clientes, clientes, cliente.username);
+
+            if (!nomeEmUso && num_clientes < MAX_UTILIZADORES)
+            {
+                strcpy(clientes[num_clientes++], cliente.username);
+                printf("[CONTROLADOR]: Registando novo cliente: %s\n", cliente.username);
+            }
+
+            fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
+
+            if (nomeEmUso && num_clientes > MAX_UTILIZADORES)
+            {
+                char mensagem[MAX_CHARACTERS] = "negado";
+                write(fd_cliente, mensagem, strlen(mensagem));
+                printf("[CONTROLADOR]: Nome em uso\n");
+            }
+            else
+            {
+                char mensagem[MAX_CHARACTERS] = "registado";
+                write(fd_cliente, mensagem, strlen(mensagem));
+                printf("[CONTROLADOR]: Cliente %s registado\n", cliente.username);
+            }
+            close(fd_cliente);
+        }
+        else if (bytes == (int)sizeof(Pedido))
+        {
+            Pedido *pedido_ptr = (Pedido *)buffer;
+            strcpy(comando, pedido_ptr->comando);
+            cliente.pid_cliente = pedido_ptr->pid_cliente;
+
+            printf("[CONTROLADOR]: Pedido recebido do cliente PID: %d - Comando: %s\n",
+                   cliente.pid_cliente, comando);
+
+            res = filtraPedido(comando, cliente);
+            if(res == 200)
+                printf("[CONTROLADOR]: Pedido executado com sucesso.\n");
+            
+            else
+                printf("[CONTROLADOR]: Erro ao executar o pedido.\n");
+            
         }
         else
         {
-            char mensagem[MAX_CHARACTERS] = "registado";
-            write(fd_cliente, mensagem, strlen(mensagem));
-            printf("[CONTROLADOR]: Cliente %s registado\n", cliente.username);
-            strcpy(clientes[num_clientes++], cliente.username);
-        }
-        close(fd_cliente);
-    }
-
-    // ciclo para receber os pedidos do cliente que foi conectado
-    // erro aqui, corrigir amanhã
-    // TODO
-    while (1)
-    {
-        fd_servidor = abrirFIFO(FIFO_SERVIDOR, false);
-        memset(pedido, 0, sizeof(pedido));
-        read(fd_servidor, pedido, sizeof(pedido));
-        close(fd_servidor);
-
-        res = filtraPedido(pedido, cliente);
-        if (res == 200)
+            printf("[CONTROLADOR]: Pedido inválido recebido.\n");
             continue;
-        break;
+        }
     }
     unlink(FIFO_SERVIDOR);
     return 0;

@@ -18,6 +18,8 @@
 #define MAX_RESPOSTA_TAM 128
 #define MAX_CHARACTERS 256
 #define MAX_ARGUMENTOS 5
+#define REGISTADO "registado"
+#define NEGADO "negado"
 
 // Estruturas
 typedef struct
@@ -40,8 +42,14 @@ typedef struct
     char username[MAX_CHARACTERS];
 } Cliente;
 
+typedef struct
+{
+    pid_t pid_cliente;
+    char comando[MAX_CHARACTERS];
+} Pedido;
+
 // Funções do Cliente
-int escolheServico(int fd_servidor, int fd_cliente, Cliente cliente);
+int escolheServico(Cliente cliente);
 
 // Funções do Controlador
 int agendar(Cliente cliente, Servico servico);
