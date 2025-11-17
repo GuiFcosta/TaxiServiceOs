@@ -16,6 +16,8 @@ int enviarVeiculo(Servico agendamentos[])
 {
     int veiculo = 111;
 
+    // Warning aqui porque nao estou a usar a variavel agendamentos[]
+
     // Recebe: lista de servicos agendados, cliente que agendou o serviço
     // TODO: Lança o programa Veiculo para o cliente
 
@@ -24,7 +26,7 @@ int enviarVeiculo(Servico agendamentos[])
 
 int agendar(Cliente cliente, Servico servico)
 {
-    char confirma[MAX_CHARACTERS];
+    char confirma[MAX_CHARACTERS * 2];
     sprintf(confirma, "Servico agendado com sucesso.\n Hora: %02d:%02d, Local: %s, Distancia: %.2f km\n",
             servico.hora.horas, servico.hora.minutos, servico.local, servico.distancia);
 
@@ -42,12 +44,18 @@ int agendar(Cliente cliente, Servico servico)
 int consultar(Cliente cliente, int id)
 {
     /* Implementar a lógica de consulta */
+
+    /* Warning aqui porque nao estou a usar as variaveis cliente e id */
+
     return 200;
 }
 
 int cancelar(Cliente cliente)
 {
     /* Implementar a lógica de cancelamento */
+
+    /* Warning aqui porque nao estou a usar a variavel cliente */
+
     return 200;
 }
 
@@ -171,12 +179,11 @@ int main()
                    cliente.pid_cliente, comando);
 
             res = filtraPedido(comando, cliente);
-            if(res == 200)
+            if (res == 200)
                 printf("[CONTROLADOR]: Pedido executado com sucesso.\n");
-            
+
             else
                 printf("[CONTROLADOR]: Erro ao executar o pedido.\n");
-            
         }
         else
         {

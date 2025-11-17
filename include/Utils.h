@@ -15,7 +15,6 @@
 #define MAX_UTILIZADORES 30
 #define NVEICULOS 10
 #define MAX_USERNAME_TAM 64
-#define MAX_RESPOSTA_TAM 128
 #define MAX_CHARACTERS 256
 #define MAX_ARGUMENTOS 5
 #define REGISTADO "registado"
@@ -30,7 +29,7 @@ typedef struct
 typedef struct
 {
     Hora hora;
-    char local[MAX_CHARACTERS];
+    char local[128];
     float distancia;
 } Servico;
 
@@ -39,7 +38,7 @@ typedef struct
 {
     pid_t pid_cliente;
     char fifo_cliente[MAX_CHARACTERS];
-    char username[MAX_CHARACTERS];
+    char username[MAX_USERNAME_TAM];
 } Cliente;
 
 typedef struct
