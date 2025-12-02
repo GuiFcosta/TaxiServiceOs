@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <signal.h>
+#include <pthread.h>
 
 // Pipes nomeados
 #define FIFO_SERVIDOR "/tmp/fifo_servidor"
