@@ -9,7 +9,7 @@ bool verificaUserName(int num_clientes, char clientes[][MAX_USERNAME_TAM], char 
   for (int i = 0; i < num_clientes; i++)
     if (strcmp(clientes[i], username) == 0)
       return true;
-  
+
   return false;
 }
 
@@ -28,11 +28,8 @@ int enviarVeiculo(Servico agendamentos[])
 int agendar(Cliente cliente, Servico servico)
 {
   char confirma[MAX_CHARACTERS * 2];
-  sprintf(confirma,
-          "Servico agendado com sucesso.\n Hora: %02d:%02d, Local: %s, "
-          "Distancia: %.2f km\n",
-          servico.hora.horas, servico.hora.minutos, servico.local,
-          servico.distancia);
+  sprintf(confirma, "Servico agendado com sucesso.\n Hora: %02d:%02d, Local: %s, Distancia: %.2f km\n",
+          servico.hora.horas, servico.hora.minutos, servico.local, servico.distancia);
 
   int fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
   write(fd_cliente, confirma, strlen(confirma));
@@ -66,33 +63,6 @@ int cancelar(Cliente cliente)
 
 int terminar(Cliente cliente)
 {
-  char confirma[MAX_CHARACTERS];
-  sprintf(confirma, "terminado");
-  int fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
-  write(fd_cliente, confirma, strlen(confirma));
-  close(fd_cliente);
-
-  for (int i = 0; i < num_clientes; i++)
-  {
-    if (strcmp(clientes[i], cliente.username) == 0)
-    {
-      // Remover o cliente da lista
-      for (int j = i; j < num_clientes - 1; j++)
-      {
-        strcpy(clientes[j], clientes[j + 1]);
-      }
-      num_clientes--;
-      break;
-    }
-  }
-
-  printf("Clientes atualmente registados:\n");
-  for (int i = 0; i < num_clientes; i++)
-  {
-    printf("Cliente %d: %s\n", i, clientes[i]);
-  }
-
-  /* Warning aqui porque nao estou a usar a variavel cliente */
 
   return 200;
 }
@@ -154,32 +124,75 @@ int filtraPedido(char pedido[], Cliente cliente)
   return executarOperacao(argumentos, n_argumentos, cliente);
 }
 
-void *gestaoComandos(void *arg)
+void processar_comandos_controlador(char comando[])
+{
+  if (strcmp(comando, "listar") == 0)
+  {
+    printf("--- Lista de Serviços Agendados ---\n");
+  }
+  else if (strcmp(comando, "utiliz") == 0)
+  {
+    printf("--- Lista de Utilizadores ---\n");
+    for (int i = 0; i < num_clientes; i++)
+      printf("- %s\n", clientes[i]);
+  }
+  else if(strcmp(comando, "frota") == 0)
+  {
+    printf("--- Estado da Frota ---\n");
+  }
+  else if (strncmp(comando, "cancelar", 8) == 0)
+  {
+    char *arg = comando + 9; // Pular o comando e o espaço
+    int id = atoi(arg);
+    printf("Cancelando serviço com ID: %d\n", id);
+  }
+  else if (strcmp(comando, "km") == 0)
+  {
+    printf("--- Quilometragem Total ---\n");
+  }
+  else if (strcmp(comando, "hora") == 0)
+  {
+    printf("--- Hora Atual ---\n");
+  }
+  else if (strcmp(comando, "terminar") == 0)
+  {
+    printf("Terminando o controlador...\n");
+    unlink(FIFO_SERVIDOR);
+    exit(0);
+  }
+  else
+  {
+    printf("[ERRO] Comando desconhecido: %s\n", comando);
+  }
+}
+
+void *thread_gestao_comandos(void *arg)
 {
   char comando[MAX_CHARACTERS];
+
+  printf("[CONTROLADOR] Escolha alguma das opções abaixo:\n"
+         "- listar\n"
+         "- utiliz\n"
+         "- frota\n"
+         "- cancelar <id>\n"
+         "- km\n"
+         "- hora\n"
+         "- terminar\n");
+
   while (1)
   {
-    printf(
-      "- listar\n"
-      "- utiliz\n"
-      "- frota\n"
-      "- cancelar <id>\n"
-      "- km\n"
-      "- hora\n"
-      "- terminar\n");
-    fgets(comando, sizeof(comando), stdin); 
+    printf("> ");
+
+    if (fgets(comando, sizeof(comando), stdin) == NULL)
+      continue;
+
     comando[strcspn(comando, "\n")] = 0;
 
     pthread_mutex_lock(&lock);
-    if (strcmp(comando, "sair") == 0)
-    {
-      printf("Controlador a sair...\n");
-      unlink(FIFO_SERVIDOR);
-      exit(0);
-    }
+    processar_comandos_controlador(comando);
+    pthread_mutex_unlock(&lock);
   }
-  
-
+  return NULL;
 }
 
 int main()
@@ -190,7 +203,7 @@ int main()
   char comando[MAX_CHARACTERS];
 
   pthread_t thread_comandos;
-  if(pthread_create(&thread_comandos, NULL, gestaoComandos, NULL) != 0)
+  if (pthread_create(&thread_comandos, NULL, thread_gestao_comandos, NULL) != 0)
   {
     perror("Erro ao criar a thread de gestão de comandos");
     exit(1);
@@ -213,11 +226,12 @@ int main()
     if (bytes <= 0)
       continue;
 
+    pthread_mutex_lock(&lock);
     if (bytes == (int)sizeof(Cliente))
     {
       memcpy(&cliente, buffer, sizeof(Cliente));
 
-      printf("[CONTROLADOR]: Pedido de conexao de <%s> FIFO: %s\n", cliente.username, cliente.fifo_cliente);
+      printf("\n[CONTROLADOR]: Pedido de conexao de <%s> FIFO: %s\n", cliente.username, cliente.fifo_cliente);
 
       bool nomeEmUso = verificaUserName(num_clientes, clientes, cliente.username);
 
@@ -250,8 +264,7 @@ int main()
       strcpy(comando, pedido_ptr->comando);
       cliente.pid_cliente = pedido_ptr->pid_cliente;
 
-      printf(
-          "[CONTROLADOR]: Pedido recebido do cliente PID: %d - Comando: %s\n",
+      printf("[CONTROLADOR]: Pedido recebido do cliente PID: %d - Comando: %s\n",
           cliente.pid_cliente, comando);
 
       res = filtraPedido(comando, cliente);
@@ -265,6 +278,8 @@ int main()
       printf("[CONTROLADOR]: Pedido inválido recebido.\n");
       continue;
     }
+
+    pthread_mutex_unlock(&lock);
   }
   unlink(FIFO_SERVIDOR);
   return 0;

@@ -50,7 +50,8 @@ typedef struct
 } Pedido;
 
 // Funções do Cliente
-int escolheServico(Cliente cliente);
+void* thread_recebe_mensagens(void* arg);
+void* thread_envia_pedidos(void* arg);
 
 // Funções do Controlador
 int agendar(Cliente cliente, Servico servico);
@@ -58,6 +59,7 @@ int consultar(Cliente cliente, int id);
 int cancelar(Cliente cliente);
 int filtraPedido(char pedido[], Cliente cliente);
 int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente);
+void* thread_gestao_comandos(void* arg);
 
 // Funções partilhadas
 Servico criarServico(char *hora, char *local, char *distancia);
