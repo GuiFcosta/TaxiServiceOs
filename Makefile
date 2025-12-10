@@ -1,6 +1,6 @@
 # Makefile
 CC=gcc
-CFLAGS=-Iinclude -Wall -Wextra -g
+CFLAGS=-Iinclude -Wall -Wextra -g -pthread
 SRCDIR=src
 
 CLIENTE=Cliente

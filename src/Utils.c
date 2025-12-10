@@ -27,10 +27,11 @@ int abrirFIFO(const char *fifo_nome, bool write) {
 
 Servico criarServico(char *hora, char *local, char *distancia) {
 	Servico servico;
-	sscanf(hora, "%d:%d", &servico.hora.horas, &servico.hora.minutos);
-
+	
 	strncpy(servico.local, local, sizeof(servico.local) - 1);
 	servico.local[sizeof(servico.local) - 1] = '\0'; // Garantir terminação nula
+
+	servico.hora = atoi(hora);
 
 	servico.distancia = atof(distancia);
 

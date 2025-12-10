@@ -12,6 +12,7 @@
 // Pipes nomeados
 #define FIFO_SERVIDOR "/tmp/fifo_servidor"
 #define FIFO_CLIENTE "/tmp/fifo_cliente_%d"
+#define FIFO_VEICULO "/tmp/fifo_veiculo_%d"
 
 // Constantes
 #define MAX_UTILIZADORES 30
@@ -19,23 +20,18 @@
 #define MAX_USERNAME_TAM 64
 #define MAX_CHARACTERS 256
 #define MAX_ARGUMENTOS 5
+#define MAX_AGENDAMENTOS 100
 #define REGISTADO "registado"
 #define NEGADO "negado"
 
 // Estruturas
 typedef struct
 {
-    int minutos, horas;
-} Hora;
-
-typedef struct
-{
-    Hora hora;
+    int hora; // segundos desde o agendamento
     char local[128];
     float distancia;
 } Servico;
 
-// Estrutura de mensagem correspondente a um pedido cliente -> servidor
 typedef struct
 {
     pid_t pid_cliente;
@@ -43,11 +39,27 @@ typedef struct
     char username[MAX_USERNAME_TAM];
 } Cliente;
 
+typedef struct {
+    int id;                 
+    Servico servico;       
+    Cliente cliente;        
+    bool ativo;          
+    bool em_execucao;       
+    pid_t pid_veiculo;      
+    int pipe_leitura_veiculo; 
+} Agendamento;
+
 typedef struct
 {
     pid_t pid_cliente;
     char comando[MAX_CHARACTERS];
 } Pedido;
+
+typedef struct
+{
+    pid_t pid_veiculo;
+    char fifo_veiculo[MAX_CHARACTERS];
+} Veiculo;
 
 // Funções do Cliente
 void* thread_recebe_mensagens(void* arg);
@@ -59,7 +71,9 @@ int consultar(Cliente cliente, int id);
 int cancelar(Cliente cliente);
 int filtraPedido(char pedido[], Cliente cliente);
 int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente);
+void processar_comandos_controlador(char comando[]);
 void* thread_gestao_comandos(void* arg);
+void* thread_relogio(void* arg);
 
 // Funções partilhadas
 Servico criarServico(char *hora, char *local, char *distancia);
