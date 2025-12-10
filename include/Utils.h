@@ -35,6 +35,7 @@ typedef struct
 typedef struct
 {
     pid_t pid_cliente;
+    char fifo_veiculo_atual[MAX_CHARACTERS];
     char fifo_cliente[MAX_CHARACTERS];
     char username[MAX_USERNAME_TAM];
 } Cliente;
