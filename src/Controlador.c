@@ -90,24 +90,152 @@ int agendar(Cliente cliente, Servico servico)
 
 int consultar(Cliente cliente, int id)
 {
-  /* Implementar a lógica de consulta */
+  char resposta[MAX_CHARACTERS * 3];
 
-  /* Warning aqui porque nao estou a usar as variaveis cliente e id */
+  pthread_mutex_lock(&lock_agendamentos);
+
+  Agendamento *encontrado = NULL;
+  for (int i = 0; i < num_agendamentos; i++)
+  {
+    if (agendamentos[i].ativo &&
+        agendamentos[i].id == id &&
+        agendamentos[i].cliente.pid_cliente == cliente.pid_cliente)
+    {
+      encontrado = &agendamentos[i];
+      break;
+    }
+  }
+
+  if (encontrado == NULL)
+  {
+    snprintf(resposta, sizeof(resposta),
+             "Nao existe nenhum servico ativo com ID %d associado a este utilizador.\n",
+             id);
+  }
+  else
+  {
+    const char *estado = encontrado->em_execucao ? "Em execucao" : "Agendado";
+    Servico s = encontrado->servico;
+
+    snprintf(resposta, sizeof(resposta),
+             "Servico %d (%s):\n"
+             "- Tempo restante: %d segundo(s)\n"
+             "- Local: %s\n"
+             "- Distancia: %.2f km\n",
+             encontrado->id, estado, s.hora, s.local, s.distancia);
+  }
+
+  pthread_mutex_unlock(&lock_agendamentos);
+
+  // Enviar ao cliente pela FIFO dele
+  int fd = abrirFIFO(cliente.fifo_cliente, true);
+  write(fd, resposta, strlen(resposta));
+  close(fd);
 
   return 200;
 }
 
-int cancelar(Cliente cliente)
+int cancelar(Cliente cliente, int id)
 {
-  /* Implementar a lógica de cancelamento */
+  char resposta[MAX_CHARACTERS * 2];
 
-  /* Warning aqui porque nao estou a usar a variavel cliente */
+  pthread_mutex_lock(&lock_agendamentos);
+
+  Agendamento *encontrado = NULL;
+  for (int i = 0; i < num_agendamentos; i++)
+  {
+    if (agendamentos[i].ativo &&
+        agendamentos[i].id == id &&
+        agendamentos[i].cliente.pid_cliente == cliente.pid_cliente)
+    {
+      encontrado = &agendamentos[i];
+      break;
+    }
+  }
+
+  if (encontrado == NULL)
+  {
+    snprintf(resposta, sizeof(resposta),
+             "Nao existe nenhum servico ativo com ID %d associado a este utilizador.\n",
+             id);
+  }
+  else
+  {
+    // cancelar
+    if (encontrado->em_execucao && encontrado->pid_veiculo > 0)
+    {
+      // srviço em execução: cancelar via SIGUSR1
+      if (kill(encontrado->pid_veiculo, SIGUSR1) == -1)
+      {
+        perror("[CONTROLADOR] Erro ao enviar SIGUSR1 ao veiculo");
+        snprintf(resposta, sizeof(resposta),
+                 "Falha ao cancelar o servico %d (erro ao contactar veiculo).\n",
+                 id);
+      }
+      else
+      {
+        snprintf(resposta, sizeof(resposta),
+                 "Pedido de cancelamento enviado ao veiculo para o servico %d.\n",
+                 id);
+      }
+    }
+    else
+    {
+      // Ainda não começou: só marcamos como inativo
+      snprintf(resposta, sizeof(resposta),
+               "Servico %d cancelado antes de iniciar.\n",
+               id);
+    }
+
+    encontrado->ativo = false;
+  }
+
+  pthread_mutex_unlock(&lock_agendamentos);
+
+  int fd = abrirFIFO(cliente.fifo_cliente, true);
+  write(fd, resposta, strlen(resposta));
+  close(fd);
 
   return 200;
 }
 
 int terminar(Cliente cliente)
 {
+  // 1. Informar o cliente que acabou
+  const char msg[] = "terminado";
+  int fd = abrirFIFO(cliente.fifo_cliente, true);
+  write(fd, msg, strlen(msg));
+  close(fd);
+
+  // 2. Remover cliente da lista de clientes
+  pthread_mutex_lock(&lock);
+  for (int i = 0; i < num_clientes; i++)
+  {
+    if (clientes[i].pid_cliente == cliente.pid_cliente)
+    {
+      // Substituir pelo último e reduzir contador
+      clientes[i] = clientes[num_clientes - 1];
+      num_clientes--;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&lock);
+
+  // 3. Opcional: cancelar todos os serviços futuros deste cliente
+  pthread_mutex_lock(&lock_agendamentos);
+  for (int i = 0; i < num_agendamentos; i++)
+  {
+    if (agendamentos[i].ativo &&
+        !agendamentos[i].em_execucao &&
+        agendamentos[i].cliente.pid_cliente == cliente.pid_cliente)
+    {
+      agendamentos[i].ativo = false;
+    }
+  }
+  pthread_mutex_unlock(&lock_agendamentos);
+
+  printf("[CONTROLADOR] Cliente %s (PID %d) terminou a sessao.\n",
+         cliente.username, cliente.pid_cliente);
 
   return 200;
 }
@@ -140,7 +268,13 @@ int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente)
   }
   else if (strcmp(argumentos[0], "cancelar") == 0)
   {
-    resposta = cancelar(cliente);
+    if (n_argumentos != 2)
+    {
+        printf("[ERRO] Número inválido de argumentos para cancelar.\n");
+        return -1;
+    }
+    int id = atoi(argumentos[1]);
+    resposta = cancelar(cliente, id);
   }
   else if (strcmp(argumentos[0], "terminar") == 0)
   {

@@ -69,7 +69,7 @@ void* thread_envia_pedidos(void* arg);
 // Funções do Controlador
 int agendar(Cliente cliente, Servico servico);
 int consultar(Cliente cliente, int id);
-int cancelar(Cliente cliente);
+int cancelar(Cliente cliente, int id);
 int filtraPedido(char pedido[], Cliente cliente);
 int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente);
 void processar_comandos_controlador(char comando[]);
