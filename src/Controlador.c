@@ -1,63 +1,70 @@
 #include "Utils.h"
 
 Agendamento agendamentos[MAX_AGENDAMENTOS];
-int num_agendamentos = 0;
+static int num_agendamentos = 0;
 
 static Cliente clientes[MAX_UTILIZADORES];
-
 static int num_clientes = 0;
+
+static int tempo_simulado = 0;
+static float distancia_atual = 0.0f;
+static float distancia_total = 0.0f;
 
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t lock_agendamentos = PTHREAD_MUTEX_INITIALIZER;
 
-bool verificaUserName(int num_clientes, Cliente clientes[], char *username)
-{
-  for (int i = 0; i < num_clientes; i++)
-    if (strcmp(clientes[i].username, username) == 0)
-      return true;
-
-  return false;
-}
-
-void enviarVeiculo(Agendamento* ag)
+void enviarVeiculo(Agendamento *ag)
 {
   int p_fd[2]; // Pipe anónimo para ler o stdout do veiculo
-    pipe(p_fd);  // Cria o pipe
+  pipe(p_fd);  // Cria o pipe
 
-    pid_t pid = fork();
+  pid_t pid = fork();
 
-    if (pid == 0) { // Processo FILHO (Veículo)
-        // 1. Redirecionar stdout para o pipe (para o pai ler)
-        close(p_fd[0]);   // Fecha leitura
-        dup2(p_fd[1], STDOUT_FILENO); // stdout agora vai para o pipe
-        close(p_fd[1]);
+  // Processo FILHO (Veículo - pid = 0) ou PAI (Controlador)
+  if (pid == 0)
+  {
+    // Redirecionar stdout para o pipe (para o pai ler)
+    close(p_fd[0]);               // Fecha leitura
+    dup2(p_fd[1], STDOUT_FILENO); // stdout agora vai para o pipe
+    close(p_fd[1]);
 
-        // 2. Preparar argumentos
-        char arg_hora[10], arg_dist[10];
-        sprintf(arg_hora, "%d", ag->servico.hora);
-        sprintf(arg_dist, "%.2f", ag->servico.distancia);
+    char hora_agendamento[10];
+    char distancia_agendamento[10];
+    sprintf(hora_agendamento, "%d", ag->servico.hora);
+    sprintf(distancia_agendamento, "%.2f", ag->servico.distancia);
 
-        // 3. Executar o módulo Veículo
-        execl("./Veiculo", "Veiculo", 
-              arg_hora,               // Arg 1: Hora (ou ID)
-              ag->servico.local,      // Arg 2: Local
-              arg_dist,               // Arg 3: Distância
-              ag->cliente.fifo_cliente,// Arg 4: Contacto do cliente (Pipe)
-              NULL);
-        
-        perror("Falha ao lançar Veiculo");
-        exit(1);
-    } 
-    else { // Processo PAI (Controlador)
-        close(p_fd[1]); // Fecha escrita
-        
-        ag->em_execucao = true;
-        ag->pid_veiculo = pid;
-        ag->pipe_leitura_veiculo = p_fd[0]; // Guardar para ler telemetria depois
-        
-        printf("[CONTROLADOR] Veículo lançado para serviço %d\n", ag->id);
+    // Executar o Veículo
+    execl("./Veiculo", "Veiculo",
+          hora_agendamento,         // Arg 1: Hora
+          ag->servico.local,        // Arg 2: Local
+          distancia_agendamento,    // Arg 3: Distância
+          ag->cliente.fifo_cliente, // Arg 4: Pipe do cliente
+          NULL);
+
+    perror("Falha ao lançar Veiculo");
+    exit(1);
+  }
+  else
+  {
+    close(p_fd[1]); // Fecha escrita
+
+    ag->em_execucao = true;
+    ag->pid_veiculo = pid;
+    ag->pipe_leitura_veiculo = p_fd[0];
+
+    pthread_t t_monitor;
+
+    Veiculo *dados = malloc(sizeof(Veiculo));
+    dados->pipe_leitura = p_fd[0];
+    dados->id_veiculo = ag->id;
+
+    if (pthread_create(&t_monitor, NULL, thread_escuta_veiculo, dados) != 0)
+    {
+      perror("Erro ao criar thread monitor");
     }
-  
+
+    printf("[CONTROLADOR] Veículo (PID: %d) lançado para serviço\n", ag->pid_veiculo);
+  }
 }
 
 int agendar(Cliente cliente, Servico servico)
@@ -84,7 +91,7 @@ int agendar(Cliente cliente, Servico servico)
   agendamentos[num_agendamentos++] = novo_agendamento;
 
   pthread_mutex_unlock(&lock_agendamentos);
-  
+
   return 200;
 }
 
@@ -94,23 +101,11 @@ int consultar(Cliente cliente, int id)
 
   pthread_mutex_lock(&lock_agendamentos);
 
-  Agendamento *encontrado = NULL;
-  for (int i = 0; i < num_agendamentos; i++)
-  {
-    if (agendamentos[i].ativo &&
-        agendamentos[i].id == id &&
-        agendamentos[i].cliente.pid_cliente == cliente.pid_cliente)
-    {
-      encontrado = &agendamentos[i];
-      break;
-    }
-  }
+  Agendamento *encontrado = encontrarAgendamento(agendamentos, cliente, num_agendamentos, id);
 
   if (encontrado == NULL)
   {
-    snprintf(resposta, sizeof(resposta),
-             "Nao existe nenhum servico ativo com ID %d associado a este utilizador.\n",
-             id);
+    snprintf(resposta, sizeof(resposta), "Nao existe um servico ativo com ID %d associado a este utilizador.\n", id);
   }
   else
   {
@@ -141,23 +136,11 @@ int cancelar(Cliente cliente, int id)
 
   pthread_mutex_lock(&lock_agendamentos);
 
-  Agendamento *encontrado = NULL;
-  for (int i = 0; i < num_agendamentos; i++)
-  {
-    if (agendamentos[i].ativo &&
-        agendamentos[i].id == id &&
-        agendamentos[i].cliente.pid_cliente == cliente.pid_cliente)
-    {
-      encontrado = &agendamentos[i];
-      break;
-    }
-  }
+  Agendamento *encontrado = encontrarAgendamento(agendamentos, cliente, num_agendamentos, id);
 
   if (encontrado == NULL)
   {
-    snprintf(resposta, sizeof(resposta),
-             "Nao existe nenhum servico ativo com ID %d associado a este utilizador.\n",
-             id);
+    snprintf(resposta, sizeof(resposta), "Nao existe um servico ativo com ID %d associado a este utilizador.\n", id);
   }
   else
   {
@@ -168,23 +151,17 @@ int cancelar(Cliente cliente, int id)
       if (kill(encontrado->pid_veiculo, SIGUSR1) == -1)
       {
         perror("[CONTROLADOR] Erro ao enviar SIGUSR1 ao veiculo");
-        snprintf(resposta, sizeof(resposta),
-                 "Falha ao cancelar o servico %d (erro ao contactar veiculo).\n",
-                 id);
+        snprintf(resposta, sizeof(resposta), "Falha ao cancelar o servico %d (erro ao contactar veiculo).\n", id);
       }
       else
       {
-        snprintf(resposta, sizeof(resposta),
-                 "Pedido de cancelamento enviado ao veiculo para o servico %d.\n",
-                 id);
+        snprintf(resposta, sizeof(resposta), "Pedido de cancelamento enviado ao veiculo para o servico %d.\n", id);
       }
     }
     else
     {
       // Ainda não começou: só marcamos como inativo
-      snprintf(resposta, sizeof(resposta),
-               "Servico %d cancelado antes de iniciar.\n",
-               id);
+      snprintf(resposta, sizeof(resposta), "Servico %d cancelado antes de iniciar.\n", id);
     }
 
     encontrado->ativo = false;
@@ -201,19 +178,17 @@ int cancelar(Cliente cliente, int id)
 
 int terminar(Cliente cliente)
 {
-  // 1. Informar o cliente que acabou
   const char msg[] = "terminado";
   int fd = abrirFIFO(cliente.fifo_cliente, true);
   write(fd, msg, strlen(msg));
   close(fd);
 
-  // 2. Remover cliente da lista de clientes
+  // Remover cliente da lista de clientes
   pthread_mutex_lock(&lock);
   for (int i = 0; i < num_clientes; i++)
   {
     if (clientes[i].pid_cliente == cliente.pid_cliente)
     {
-      // Substituir pelo último e reduzir contador
       clientes[i] = clientes[num_clientes - 1];
       num_clientes--;
       break;
@@ -221,7 +196,7 @@ int terminar(Cliente cliente)
   }
   pthread_mutex_unlock(&lock);
 
-  // 3. Opcional: cancelar todos os serviços futuros deste cliente
+  // Cancelar todos os serviços futuros deste cliente
   pthread_mutex_lock(&lock_agendamentos);
   for (int i = 0; i < num_agendamentos; i++)
   {
@@ -234,8 +209,7 @@ int terminar(Cliente cliente)
   }
   pthread_mutex_unlock(&lock_agendamentos);
 
-  printf("[CONTROLADOR] Cliente %s (PID %d) terminou a sessao.\n",
-         cliente.username, cliente.pid_cliente);
+  printf("[CONTROLADOR] Cliente %s (PID %d) terminou a sessao.\n", cliente.username, cliente.pid_cliente);
 
   return 200;
 }
@@ -270,8 +244,8 @@ int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente)
   {
     if (n_argumentos != 2)
     {
-        printf("[ERRO] Número inválido de argumentos para cancelar.\n");
-        return -1;
+      printf("[ERRO] Número inválido de argumentos para cancelar.\n");
+      return -1;
     }
     int id = atoi(argumentos[1]);
     resposta = cancelar(cliente, id);
@@ -329,27 +303,80 @@ void processar_comandos_controlador(char comando[])
     for (int i = 0; i < num_clientes; i++)
       printf("- %s\n", clientes[i].username);
   }
-  else if(strcmp(comando, "frota") == 0)
+  else if (strcmp(comando, "frota") == 0)
   {
     printf("--- Estado da Frota ---\n");
+    for (int i = 0; i < num_agendamentos; i++)
+    {
+      Agendamento *ag = &agendamentos[i];
+      if (ag->em_execucao && ag->ativo)
+      {
+        printf("Veículo PID: %d | Distancia: %.2f km\n",
+               ag->pid_veiculo,
+               distancia_atual);
+      }
+    }
   }
   else if (strncmp(comando, "cancelar", 8) == 0)
   {
     char *arg = comando + 9; // Pular o comando e o espaço
     int id = atoi(arg);
     printf("Cancelando serviço com ID: %d\n", id);
+    pthread_mutex_lock(&lock_agendamentos);
+    Agendamento *encontrado = NULL;
+    for (int i = 0; i < num_agendamentos; i++)
+    {
+      if (agendamentos[i].id == id && agendamentos[i].ativo)
+      {
+        encontrado = &agendamentos[i];
+        break;
+      }
+    }
+
+    if (encontrado == NULL)
+    {
+      printf("Nao existe um servico ativo com ID %d.\n", id);
+    }
+    else
+    {
+      if (encontrado->em_execucao && encontrado->pid_veiculo > 0)
+      {
+        if (kill(encontrado->pid_veiculo, SIGUSR1) == -1)
+        {
+          perror("[CONTROLADOR] Erro ao enviar SIGUSR1 ao veiculo");
+          printf("Falha ao cancelar o servico %d (erro ao contactar veiculo).\n", id);
+        }
+        else
+        {
+          printf("Pedido de cancelamento enviado ao veiculo para o servico %d.\n", id);
+        }
+      }
+      else
+      {
+        printf("Servico %d cancelado antes de iniciar.\n", id);
+      }
+      encontrado->ativo = false;
+    }
+    pthread_mutex_unlock(&lock_agendamentos);
   }
   else if (strcmp(comando, "km") == 0)
   {
     printf("--- Quilometragem Total ---\n");
+    printf("Quilometragem total: %.2f km\n", distancia_total);
   }
   else if (strcmp(comando, "hora") == 0)
   {
     printf("--- Hora Atual ---\n");
+    printf("Hora atual (simulada): %d segundos.\n", tempo_simulado);
   }
   else if (strcmp(comando, "terminar") == 0)
   {
     printf("Terminando o controlador...\n");
+    printf("A avisar todos os clientes...\n");
+    for (int i = 0; i < num_clientes; i++)
+    {
+      terminar(clientes[i]);
+    }
     unlink(FIFO_SERVIDOR);
     exit(0);
   }
@@ -359,7 +386,7 @@ void processar_comandos_controlador(char comando[])
   }
 }
 
-void* thread_relogio(void* arg)
+void *thread_relogio(void *arg)
 {
   while (1)
   {
@@ -369,6 +396,7 @@ void* thread_relogio(void* arg)
     {
       if (agendamentos[i].ativo && !agendamentos[i].em_execucao)
       {
+        tempo_simulado += 1;
         agendamentos[i].servico.hora -= 1;
         if (agendamentos[i].servico.hora <= 0)
         {
@@ -387,17 +415,17 @@ void *thread_gestao_comandos(void *arg)
 {
   char comando[MAX_CHARACTERS];
 
-  printf("[CONTROLADOR] Escolha alguma das opções abaixo:\n"
-         "- listar\n"
-         "- utiliz\n"
-         "- frota\n"
-         "- cancelar <id>\n"
-         "- km\n"
-         "- hora\n"
-         "- terminar\n");
-
   while (1)
   {
+    printf("[CONTROLADOR] Escolha alguma das opções abaixo:\n"
+           "- listar\n"
+           "- utiliz\n"
+           "- frota\n"
+           "- cancelar <id>\n"
+           "- km\n"
+           "- hora\n"
+           "- terminar\n");
+
     printf("> ");
 
     if (fgets(comando, sizeof(comando), stdin) == NULL)
@@ -409,6 +437,44 @@ void *thread_gestao_comandos(void *arg)
     processar_comandos_controlador(comando);
     pthread_mutex_unlock(&lock);
   }
+  return NULL;
+}
+
+void *thread_escuta_veiculo(void *arg)
+{
+  char buffer[1024];
+  int n, dec;
+
+  Veiculo *dados = (Veiculo *)arg;
+  Agendamento *ag = NULL;
+
+  for (int i = 0; i < num_agendamentos; i++)
+  {
+    if (agendamentos[i].id == dados->id_veiculo)
+    {
+      ag = &agendamentos[i];
+      break;
+    }
+  }
+
+  dec = ag->servico.distancia / 10.0f;
+
+  // Lê do pipe enquanto o pipe estiver aberto (ou seja, enquanto o veiculo corre)
+  while ((n = read(dados->pipe_leitura, buffer, sizeof(buffer) - 1)) > 0)
+  {
+    buffer[n] = '\0';
+
+    pthread_mutex_lock(&lock);
+
+    printf("[VEICULO %d]: %s", dados->id_veiculo, buffer);
+
+    distancia_total += dec;
+
+    pthread_mutex_unlock(&lock);
+  }
+
+  close(dados->pipe_leitura);
+  free(dados);
   return NULL;
 }
 
@@ -485,7 +551,7 @@ int main()
     {
       Pedido *pedido_ptr = (Pedido *)buffer;
 
-      for(int i = 0; i < num_clientes; i++)
+      for (int i = 0; i < num_clientes; i++)
       {
         if (clientes[i].pid_cliente == pedido_ptr->pid_cliente)
         {

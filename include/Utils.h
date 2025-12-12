@@ -58,8 +58,8 @@ typedef struct
 
 typedef struct
 {
-    pid_t pid_veiculo;
-    char fifo_veiculo[MAX_CHARACTERS];
+    int pipe_leitura;
+    int id_veiculo;
 } Veiculo;
 
 // Funções do Cliente
@@ -73,10 +73,16 @@ int cancelar(Cliente cliente, int id);
 int filtraPedido(char pedido[], Cliente cliente);
 int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente);
 void processar_comandos_controlador(char comando[]);
+void enviarVeiculo(Agendamento* ag);
+
+// Threads do Controlador
 void* thread_gestao_comandos(void* arg);
 void* thread_relogio(void* arg);
+void* thread_escuta_veiculo(void* arg);
 
 // Funções partilhadas
 Servico criarServico(char *hora, char *local, char *distancia);
+Agendamento *encontrarAgendamento(Agendamento agendamentos[], Cliente cliente, int num_agendamentos, int id);
+bool verificaUserName(int num_clientes, Cliente clientes[], char *username);
 void criarFIFO(const char *fifo_name);
 int abrirFIFO(const char *fifo_name, bool write);

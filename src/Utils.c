@@ -37,3 +37,28 @@ Servico criarServico(char *hora, char *local, char *distancia) {
 
 	return servico;
 }
+
+bool verificaUserName(int num_clientes, Cliente clientes[], char *username)
+{
+  for (int i = 0; i < num_clientes; i++)
+    if (strcmp(clientes[i].username, username) == 0)
+      return true;
+
+  return false;
+}
+
+Agendamento *encontrarAgendamento(Agendamento agendamentos[], Cliente cliente, int num_agendamentos, int id)
+{
+  Agendamento *encontrado = NULL;
+  for (int i = 0; i < num_agendamentos; i++)
+  {
+    if (agendamentos[i].ativo &&
+        agendamentos[i].id == id &&
+        agendamentos[i].cliente.pid_cliente == cliente.pid_cliente)
+    {
+      encontrado = &agendamentos[i];
+      break;
+    }
+  }
+  return encontrado;
+}

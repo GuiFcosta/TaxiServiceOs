@@ -25,6 +25,8 @@ void *thread_recebe_mensagens(void *arg)
 
       if (strcmp(resposta, "terminado") == 0)
       {
+        printf("[CLIENTE]: Sessao terminada pelo servidor.\n");
+        close(fd_cliente);
         exit(0);
       }
     }
@@ -44,7 +46,7 @@ void *thread_envia_pedidos(void *arg)
 
     printf("[CLIENTE] Escolha alguma das opções abaixo:\n"
            "- agendar <hora> <local> <distancia>\n"
-           "- consultar\n"
+           "- consultar <id>\n"
            "- cancelar <id>\n"
            "- terminar\n");
 
