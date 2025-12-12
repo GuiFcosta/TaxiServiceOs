@@ -74,6 +74,7 @@ int agendar(Cliente cliente, Servico servico)
           servico.hora, servico.local, servico.distancia);
 
   int fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
+  if (fd_cliente < 0) return -1;
   write(fd_cliente, confirma, strlen(confirma));
   close(fd_cliente);
 
@@ -87,6 +88,7 @@ int agendar(Cliente cliente, Servico servico)
   novo_agendamento.em_execucao = false;
   novo_agendamento.pid_veiculo = -1;
   novo_agendamento.pipe_leitura_veiculo = -1;
+  novo_agendamento.km_atual = 0.0f;
 
   agendamentos[num_agendamentos++] = novo_agendamento;
 
@@ -124,6 +126,7 @@ int consultar(Cliente cliente, int id)
 
   // Enviar ao cliente pela FIFO dele
   int fd = abrirFIFO(cliente.fifo_cliente, true);
+  if (fd < 0) return -1;
   write(fd, resposta, strlen(resposta));
   close(fd);
 
@@ -170,6 +173,7 @@ int cancelar(Cliente cliente, int id)
   pthread_mutex_unlock(&lock_agendamentos);
 
   int fd = abrirFIFO(cliente.fifo_cliente, true);
+  if (fd < 0) return -1;
   write(fd, resposta, strlen(resposta));
   close(fd);
 
@@ -179,9 +183,12 @@ int cancelar(Cliente cliente, int id)
 int terminar(Cliente cliente)
 {
   const char msg[] = "terminado";
-  int fd = abrirFIFO(cliente.fifo_cliente, true);
-  write(fd, msg, strlen(msg));
-  close(fd);
+  int fd = open(cliente.fifo_cliente, O_WRONLY | O_NONBLOCK);
+  if (fd >= 0)
+  {
+    write(fd, msg, strlen(msg));
+    close(fd);
+  }
 
   // Remover cliente da lista de clientes
   pthread_mutex_lock(&lock);
@@ -276,7 +283,30 @@ int filtraPedido(char pedido[], Cliente cliente)
 
   return executarOperacao(argumentos, n_argumentos, cliente);
 }
+void terminar_todos_clientes(void)
+{
+  Cliente lista[MAX_UTILIZADORES];
+  int n = 0;
 
+  // copiar lista sob lock
+  pthread_mutex_lock(&lock);
+  n = num_clientes;
+  for (int i = 0; i < n; i++)
+    lista[i] = clientes[i];
+  pthread_mutex_unlock(&lock);
+
+  // enviar "terminado" a todos (sem mexer na lista global)
+  for (int i = 0; i < n; i++)
+  {
+    int fd = abrirFIFO(lista[i].fifo_cliente, true);
+    if (fd >= 0)
+    {
+      const char msg[] = "terminado";
+      write(fd, msg, strlen(msg));
+      close(fd);
+    }
+  }
+}
 void processar_comandos_controlador(char comando[])
 {
   if (strcmp(comando, "listar") == 0)
@@ -305,17 +335,26 @@ void processar_comandos_controlador(char comando[])
   }
   else if (strcmp(comando, "frota") == 0)
   {
-    printf("--- Estado da Frota ---\n");
-    for (int i = 0; i < num_agendamentos; i++)
+  printf("--- Estado da Frota ---\n");
+
+  pthread_mutex_lock(&lock_agendamentos);
+
+  for (int i = 0; i < num_agendamentos; i++)
+  {
+    Agendamento *ag = &agendamentos[i];
+
+    if (ag->ativo && ag->em_execucao)
     {
-      Agendamento *ag = &agendamentos[i];
-      if (ag->em_execucao && ag->ativo)
-      {
-        printf("Veículo PID: %d | Distancia: %.2f km\n",
-               ag->pid_veiculo,
-               distancia_atual);
-      }
+      printf("Servico %d | Cliente: %s | Veiculo PID: %d | %.2f / %.2f km\n",
+             ag->id,
+             ag->cliente.username,
+             ag->pid_veiculo,
+             ag->km_atual,
+             ag->servico.distancia);
     }
+  }
+
+  pthread_mutex_unlock(&lock_agendamentos);
   }
   else if (strncmp(comando, "cancelar", 8) == 0)
   {
@@ -373,10 +412,9 @@ void processar_comandos_controlador(char comando[])
   {
     printf("Terminando o controlador...\n");
     printf("A avisar todos os clientes...\n");
-    for (int i = 0; i < num_clientes; i++)
-    {
-      terminar(clientes[i]);
-    }
+
+    terminar_todos_clientes();
+
     unlink(FIFO_SERVIDOR);
     exit(0);
   }
@@ -458,7 +496,12 @@ void *thread_escuta_veiculo(void *arg)
   }
 
   dec = ag->servico.distancia / 10.0f;
-
+  if (ag == NULL)
+  {
+    close(dados->pipe_leitura);
+    free(dados);
+    return NULL;
+  }
   // Lê do pipe enquanto o pipe estiver aberto (ou seja, enquanto o veiculo corre)
   while ((n = read(dados->pipe_leitura, buffer, sizeof(buffer) - 1)) > 0)
   {
@@ -467,6 +510,12 @@ void *thread_escuta_veiculo(void *arg)
     pthread_mutex_lock(&lock);
 
     printf("[VEICULO %d]: %s", dados->id_veiculo, buffer);
+
+    pthread_mutex_lock(&lock_agendamentos);
+    ag->km_atual += dec;
+    if (ag->km_atual > ag->servico.distancia)
+      ag->km_atual = ag->servico.distancia;
+    pthread_mutex_unlock(&lock_agendamentos);
 
     distancia_total += dec;
 
@@ -531,7 +580,12 @@ int main()
       }
 
       fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
-
+      if (fd_cliente < 0) 
+      {
+          // não consegues responder ao cliente, segue
+          pthread_mutex_unlock(&lock);
+          continue;
+      }        
       if (nomeEmUso || num_clientes > MAX_UTILIZADORES)
       {
         char mensagem[MAX_CHARACTERS];

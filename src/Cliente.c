@@ -60,8 +60,18 @@ void *thread_envia_pedidos(void *arg)
     pedido.comando[strcspn(pedido.comando, "\n")] = 0;
 
     int fd_servidor = abrirFIFO(FIFO_SERVIDOR, true);
+    if (fd_servidor < 0) {
+      printf("[ERRO] Servidor indisponivel.\n");
+      continue;
+    }
     write(fd_servidor, &pedido, sizeof(Pedido));
     close(fd_servidor);
+    if (strcmp(pedido.comando, "terminar") == 0)
+    {
+      printf("[CLIENTE]: A terminar sessao...\n");
+      exit(0);
+    }
+    
   }
   return NULL;
 }

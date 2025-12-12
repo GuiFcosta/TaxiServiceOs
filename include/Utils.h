@@ -48,6 +48,7 @@ typedef struct {
     bool em_execucao;       
     pid_t pid_veiculo;      
     int pipe_leitura_veiculo; 
+    float km_atual;
 } Agendamento;
 
 typedef struct
