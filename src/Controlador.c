@@ -7,7 +7,6 @@ static Cliente clientes[MAX_UTILIZADORES];
 static int num_clientes = 0;
 
 static int tempo_simulado = 0;
-static float distancia_atual = 0.0f;
 static float distancia_total = 0.0f;
 
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -74,7 +73,9 @@ int agendar(Cliente cliente, Servico servico)
           servico.hora, servico.local, servico.distancia);
 
   int fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
-  if (fd_cliente < 0) return -1;
+  if (fd_cliente < 0)
+    return -1;
+
   write(fd_cliente, confirma, strlen(confirma));
   close(fd_cliente);
 
@@ -125,10 +126,11 @@ int consultar(Cliente cliente, int id)
   pthread_mutex_unlock(&lock_agendamentos);
 
   // Enviar ao cliente pela FIFO dele
-  int fd = abrirFIFO(cliente.fifo_cliente, true);
-  if (fd < 0) return -1;
-  write(fd, resposta, strlen(resposta));
-  close(fd);
+  int fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
+  if (fd_cliente < 0)
+    return -1;
+  write(fd_cliente, resposta, strlen(resposta));
+  close(fd_cliente);
 
   return 200;
 }
@@ -153,7 +155,6 @@ int cancelar(Cliente cliente, int id)
       // srviço em execução: cancelar via SIGUSR1
       if (kill(encontrado->pid_veiculo, SIGUSR1) == -1)
       {
-        perror("[CONTROLADOR] Erro ao enviar SIGUSR1 ao veiculo");
         snprintf(resposta, sizeof(resposta), "Falha ao cancelar o servico %d (erro ao contactar veiculo).\n", id);
       }
       else
@@ -163,7 +164,6 @@ int cancelar(Cliente cliente, int id)
     }
     else
     {
-      // Ainda não começou: só marcamos como inativo
       snprintf(resposta, sizeof(resposta), "Servico %d cancelado antes de iniciar.\n", id);
     }
 
@@ -172,10 +172,11 @@ int cancelar(Cliente cliente, int id)
 
   pthread_mutex_unlock(&lock_agendamentos);
 
-  int fd = abrirFIFO(cliente.fifo_cliente, true);
-  if (fd < 0) return -1;
-  write(fd, resposta, strlen(resposta));
-  close(fd);
+  int fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
+  if (fd_cliente < 0)
+    return -1;
+  write(fd_cliente, resposta, strlen(resposta));
+  close(fd_cliente);
 
   return 200;
 }
@@ -183,15 +184,14 @@ int cancelar(Cliente cliente, int id)
 int terminar(Cliente cliente)
 {
   const char msg[] = "terminado";
-  int fd = open(cliente.fifo_cliente, O_WRONLY | O_NONBLOCK);
-  if (fd >= 0)
-  {
-    write(fd, msg, strlen(msg));
-    close(fd);
-  }
+  int fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
+  if (fd_cliente < 0)
+    return -1;
+  write(fd_cliente, msg, strlen(msg));
+  close(fd_cliente);
 
   // Remover cliente da lista de clientes
-  pthread_mutex_lock(&lock);
+  // pthread_mutex_lock(&lock);
   for (int i = 0; i < num_clientes; i++)
   {
     if (clientes[i].pid_cliente == cliente.pid_cliente)
@@ -201,10 +201,10 @@ int terminar(Cliente cliente)
       break;
     }
   }
-  pthread_mutex_unlock(&lock);
+  // pthread_mutex_unlock(&lock);
 
   // Cancelar todos os serviços futuros deste cliente
-  pthread_mutex_lock(&lock_agendamentos);
+  // pthread_mutex_lock(&lock_agendamentos);
   for (int i = 0; i < num_agendamentos; i++)
   {
     if (agendamentos[i].ativo &&
@@ -214,7 +214,7 @@ int terminar(Cliente cliente)
       agendamentos[i].ativo = false;
     }
   }
-  pthread_mutex_unlock(&lock_agendamentos);
+  // pthread_mutex_unlock(&lock_agendamentos);
 
   printf("[CONTROLADOR] Cliente %s (PID %d) terminou a sessao.\n", cliente.username, cliente.pid_cliente);
 
@@ -283,30 +283,7 @@ int filtraPedido(char pedido[], Cliente cliente)
 
   return executarOperacao(argumentos, n_argumentos, cliente);
 }
-void terminar_todos_clientes(void)
-{
-  Cliente lista[MAX_UTILIZADORES];
-  int n = 0;
 
-  // copiar lista sob lock
-  pthread_mutex_lock(&lock);
-  n = num_clientes;
-  for (int i = 0; i < n; i++)
-    lista[i] = clientes[i];
-  pthread_mutex_unlock(&lock);
-
-  // enviar "terminado" a todos (sem mexer na lista global)
-  for (int i = 0; i < n; i++)
-  {
-    int fd = abrirFIFO(lista[i].fifo_cliente, true);
-    if (fd >= 0)
-    {
-      const char msg[] = "terminado";
-      write(fd, msg, strlen(msg));
-      close(fd);
-    }
-  }
-}
 void processar_comandos_controlador(char comando[])
 {
   if (strcmp(comando, "listar") == 0)
@@ -335,26 +312,19 @@ void processar_comandos_controlador(char comando[])
   }
   else if (strcmp(comando, "frota") == 0)
   {
-  printf("--- Estado da Frota ---\n");
-
-  pthread_mutex_lock(&lock_agendamentos);
-
-  for (int i = 0; i < num_agendamentos; i++)
-  {
-    Agendamento *ag = &agendamentos[i];
-
-    if (ag->ativo && ag->em_execucao)
+    printf("--- Estado da Frota ---\n");
+    pthread_mutex_lock(&lock_agendamentos);
+    for (int i = 0; i < num_agendamentos; i++)
     {
-      printf("Servico %d | Cliente: %s | Veiculo PID: %d | %.2f / %.2f km\n",
-             ag->id,
-             ag->cliente.username,
-             ag->pid_veiculo,
-             ag->km_atual,
-             ag->servico.distancia);
+      Agendamento *ag = &agendamentos[i];
+      if (ag->em_execucao && ag->ativo)
+      {
+        printf("Veículo PID: %d | Distancia: %.2f km\n",
+               ag->pid_veiculo,
+               ag->km_atual);
+      }
     }
-  }
-
-  pthread_mutex_unlock(&lock_agendamentos);
+    pthread_mutex_unlock(&lock_agendamentos);
   }
   else if (strncmp(comando, "cancelar", 8) == 0)
   {
@@ -382,7 +352,6 @@ void processar_comandos_controlador(char comando[])
       {
         if (kill(encontrado->pid_veiculo, SIGUSR1) == -1)
         {
-          perror("[CONTROLADOR] Erro ao enviar SIGUSR1 ao veiculo");
           printf("Falha ao cancelar o servico %d (erro ao contactar veiculo).\n", id);
         }
         else
@@ -412,7 +381,7 @@ void processar_comandos_controlador(char comando[])
   {
     printf("Terminando o controlador...\n");
     printf("A avisar todos os clientes...\n");
-
+    
     terminar_todos_clientes();
 
     unlink(FIFO_SERVIDOR);
@@ -426,6 +395,7 @@ void processar_comandos_controlador(char comando[])
 
 void *thread_relogio(void *arg)
 {
+  (void)arg; // evitar warning de unused parameter
   while (1)
   {
     sleep(1);
@@ -449,8 +419,35 @@ void *thread_relogio(void *arg)
   return NULL;
 }
 
+void terminar_todos_clientes()
+{
+  Cliente lista[MAX_UTILIZADORES];
+  int n = 0;
+
+  //pthread_mutex_lock(&lock);
+  n = num_clientes;
+
+  for (int i = 0; i < n; i++)
+    lista[i] = clientes[i];
+
+  //pthread_mutex_unlock(&lock);
+
+  // enviar "terminado" a todos (sem mexer na lista global)
+  for (int i = 0; i < n; i++)
+  {
+    int fd = abrirFIFO(lista[i].fifo_cliente, true);
+    if (fd >= 0)
+    {
+      const char msg[] = "terminado";
+      write(fd, msg, strlen(msg));
+      close(fd);
+    }
+  }
+}
+
 void *thread_gestao_comandos(void *arg)
 {
+  (void)arg; // evitar warning de unused parameter
   char comando[MAX_CHARACTERS];
 
   while (1)
@@ -496,12 +493,7 @@ void *thread_escuta_veiculo(void *arg)
   }
 
   dec = ag->servico.distancia / 10.0f;
-  if (ag == NULL)
-  {
-    close(dados->pipe_leitura);
-    free(dados);
-    return NULL;
-  }
+
   // Lê do pipe enquanto o pipe estiver aberto (ou seja, enquanto o veiculo corre)
   while ((n = read(dados->pipe_leitura, buffer, sizeof(buffer) - 1)) > 0)
   {
@@ -512,11 +504,13 @@ void *thread_escuta_veiculo(void *arg)
     printf("[VEICULO %d]: %s", dados->id_veiculo, buffer);
 
     pthread_mutex_lock(&lock_agendamentos);
+
     ag->km_atual += dec;
+
     if (ag->km_atual > ag->servico.distancia)
       ag->km_atual = ag->servico.distancia;
-    pthread_mutex_unlock(&lock_agendamentos);
 
+    pthread_mutex_unlock(&lock_agendamentos);
     distancia_total += dec;
 
     pthread_mutex_unlock(&lock);
@@ -556,6 +550,8 @@ int main()
     char buffer[sizeof(Cliente) > sizeof(Pedido) ? sizeof(Cliente) : sizeof(Pedido)];
 
     fd_servidor = abrirFIFO(FIFO_SERVIDOR, false); // abrir o FIFO do servidor para ler pedidos de conexao
+    if (fd_servidor < 0)
+      continue;
 
     int bytes = read(fd_servidor, buffer, sizeof(buffer));
 
@@ -580,12 +576,12 @@ int main()
       }
 
       fd_cliente = abrirFIFO(cliente.fifo_cliente, true);
-      if (fd_cliente < 0) 
+      if (fd_cliente < 0)
       {
-          // não consegues responder ao cliente, segue
-          pthread_mutex_unlock(&lock);
-          continue;
-      }        
+        pthread_mutex_unlock(&lock);
+        continue;
+      }
+
       if (nomeEmUso || num_clientes > MAX_UTILIZADORES)
       {
         char mensagem[MAX_CHARACTERS];

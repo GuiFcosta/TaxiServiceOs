@@ -6,6 +6,7 @@ int fd_cliente;
 
 void *thread_recebe_mensagens(void *arg)
 {
+  (void)arg; // evitar warning de unused parameter
   char resposta[MAX_CHARACTERS];
 
   fd_cliente = open(fifo_cliente_nome, O_RDWR);
@@ -60,18 +61,8 @@ void *thread_envia_pedidos(void *arg)
     pedido.comando[strcspn(pedido.comando, "\n")] = 0;
 
     int fd_servidor = abrirFIFO(FIFO_SERVIDOR, true);
-    if (fd_servidor < 0) {
-      printf("[ERRO] Servidor indisponivel.\n");
-      continue;
-    }
     write(fd_servidor, &pedido, sizeof(Pedido));
     close(fd_servidor);
-    if (strcmp(pedido.comando, "terminar") == 0)
-    {
-      printf("[CLIENTE]: A terminar sessao...\n");
-      exit(0);
-    }
-    
   }
   return NULL;
 }
@@ -87,8 +78,6 @@ int main(int argc, char *argv[])
 
   int fd_servidor; /* Identificador do FIFO do servidor */
   int fd_cliente;  /* Identificador do FIFO do cliente */
-
-  int servico;
 
   char mensagem[MAX_CHARACTERS];
   cliente.pid_cliente = getpid();    // obter o PID do cliente

@@ -18,6 +18,8 @@ int abrirFIFO(const char *fifo_nome, bool write) {
 
 	if (fd < 0) {
 		perror("Erro ao abrir FIFO");
+		unlink(fifo_nome);
+		exit(EXIT_FAILURE);
 		return -1;
 	}
 

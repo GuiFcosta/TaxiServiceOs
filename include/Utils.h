@@ -75,6 +75,7 @@ int filtraPedido(char pedido[], Cliente cliente);
 int executarOperacao(char *argumentos[], int n_argumentos, Cliente cliente);
 void processar_comandos_controlador(char comando[]);
 void enviarVeiculo(Agendamento* ag);
+void terminar_todos_clientes();
 
 // Threads do Controlador
 void* thread_gestao_comandos(void* arg);
