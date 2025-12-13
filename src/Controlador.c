@@ -289,6 +289,9 @@ void processar_comandos_controlador(char comando[])
   if (strcmp(comando, "listar") == 0)
   {
     printf("--- Lista de Serviços Agendados ---\n");
+    if (num_agendamentos == 0)
+      printf("Nenhum serviço agendado.\n");
+
     for (int i = 0; i < num_agendamentos; i++)
     {
       Agendamento *ag = &agendamentos[i];
@@ -307,21 +310,28 @@ void processar_comandos_controlador(char comando[])
   else if (strcmp(comando, "utiliz") == 0)
   {
     printf("--- Lista de Utilizadores ---\n");
+    if (num_clientes == 0)
+      printf("Nenhum utilizador conectado.\n");
+
     for (int i = 0; i < num_clientes; i++)
       printf("- %s\n", clientes[i].username);
   }
   else if (strcmp(comando, "frota") == 0)
   {
     printf("--- Estado da Frota ---\n");
+    if (num_agendamentos == 0 || distancia_total == 0.0f)
+      printf("Nenhum veículo em operação.\n");
+
     pthread_mutex_lock(&lock_agendamentos);
     for (int i = 0; i < num_agendamentos; i++)
     {
       Agendamento *ag = &agendamentos[i];
       if (ag->em_execucao && ag->ativo)
       {
-        printf("Veículo PID: %d | Distancia: %.2f km\n",
-               ag->pid_veiculo,
-               ag->km_atual);
+        printf("Veículo do serviço ID %d | Cliente: %s | Percentagem do percurso: %.1f%%\n",
+               ag->id,
+               ag->cliente.username,
+               ag->km_atual / ag->servico.distancia * 100.0f);
       }
     }
     pthread_mutex_unlock(&lock_agendamentos);
@@ -381,7 +391,7 @@ void processar_comandos_controlador(char comando[])
   {
     printf("Terminando o controlador...\n");
     printf("A avisar todos os clientes...\n");
-    
+
     terminar_todos_clientes();
 
     unlink(FIFO_SERVIDOR);
@@ -399,12 +409,12 @@ void *thread_relogio(void *arg)
   while (1)
   {
     sleep(1);
+    tempo_simulado += 1;
     pthread_mutex_lock(&lock_agendamentos);
     for (int i = 0; i < num_agendamentos; i++)
     {
       if (agendamentos[i].ativo && !agendamentos[i].em_execucao)
       {
-        tempo_simulado += 1;
         agendamentos[i].servico.hora -= 1;
         if (agendamentos[i].servico.hora <= 0)
         {
@@ -424,13 +434,13 @@ void terminar_todos_clientes()
   Cliente lista[MAX_UTILIZADORES];
   int n = 0;
 
-  //pthread_mutex_lock(&lock);
+  // pthread_mutex_lock(&lock);
   n = num_clientes;
 
   for (int i = 0; i < n; i++)
     lista[i] = clientes[i];
 
-  //pthread_mutex_unlock(&lock);
+  // pthread_mutex_unlock(&lock);
 
   // enviar "terminado" a todos (sem mexer na lista global)
   for (int i = 0; i < n; i++)
@@ -452,6 +462,7 @@ void *thread_gestao_comandos(void *arg)
 
   while (1)
   {
+    pthread_mutex_lock(&lock);
     printf("[CONTROLADOR] Escolha alguma das opções abaixo:\n"
            "- listar\n"
            "- utiliz\n"
@@ -460,6 +471,7 @@ void *thread_gestao_comandos(void *arg)
            "- km\n"
            "- hora\n"
            "- terminar\n");
+    pthread_mutex_unlock(&lock);
 
     printf("> ");
 
@@ -478,11 +490,13 @@ void *thread_gestao_comandos(void *arg)
 void *thread_escuta_veiculo(void *arg)
 {
   char buffer[1024];
-  int n, dec;
+  int n;
+  float dec;
 
   Veiculo *dados = (Veiculo *)arg;
   Agendamento *ag = NULL;
 
+  pthread_mutex_lock(&lock_agendamentos);
   for (int i = 0; i < num_agendamentos; i++)
   {
     if (agendamentos[i].id == dados->id_veiculo)
@@ -490,6 +504,14 @@ void *thread_escuta_veiculo(void *arg)
       ag = &agendamentos[i];
       break;
     }
+  }
+  pthread_mutex_unlock(&lock_agendamentos);
+
+  if (ag == NULL)
+  {
+    close(dados->pipe_leitura);
+    free(dados);
+    return NULL;
   }
 
   dec = ag->servico.distancia / 10.0f;
@@ -500,20 +522,38 @@ void *thread_escuta_veiculo(void *arg)
     buffer[n] = '\0';
 
     pthread_mutex_lock(&lock);
-
     printf("[VEICULO %d]: %s", dados->id_veiculo, buffer);
-
-    pthread_mutex_lock(&lock_agendamentos);
-
-    ag->km_atual += dec;
-
-    if (ag->km_atual > ag->servico.distancia)
-      ag->km_atual = ag->servico.distancia;
-
-    pthread_mutex_unlock(&lock_agendamentos);
-    distancia_total += dec;
-
     pthread_mutex_unlock(&lock);
+
+    if (strncmp(buffer, "INICIO", 6) == 0)
+    {
+      continue;
+    }
+    else if (strncmp(buffer, "CONCLUIDO", 9) == 0)
+    {
+      pthread_mutex_lock(&lock_agendamentos);
+
+      ag->ativo = false; // Liberta o slot
+      ag->em_execucao = false;
+
+      pthread_mutex_unlock(&lock_agendamentos);
+
+      pthread_mutex_lock(&lock);
+      printf("[CONTROLADOR] Servico %d concluido.\n", dados->id_veiculo);
+      pthread_mutex_unlock(&lock);
+      break;
+    }
+    else if (strncmp(buffer, "ANDAMENTO", 9) == 0)
+    {
+      pthread_mutex_lock(&lock_agendamentos);
+      ag->km_atual += dec;
+
+      if (ag->km_atual > ag->servico.distancia)
+        ag->km_atual = ag->servico.distancia;
+
+      distancia_total += dec;
+      pthread_mutex_unlock(&lock_agendamentos);
+    }
   }
 
   close(dados->pipe_leitura);

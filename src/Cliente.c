@@ -3,6 +3,7 @@
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 char fifo_cliente_nome[MAX_CHARACTERS];
 int fd_cliente;
+bool em_viagem = false;
 
 void *thread_recebe_mensagens(void *arg)
 {
@@ -20,11 +21,22 @@ void *thread_recebe_mensagens(void *arg)
 
       pthread_mutex_lock(&lock);
       printf("\n[CONTROLADOR]: %s\n", resposta);
-      printf("> "); // Volta a mostrar o prompt
+
+      if (!em_viagem)
+        printf("> ");
+
       fflush(stdout);
       pthread_mutex_unlock(&lock);
 
-      if (strcmp(resposta, "terminado") == 0)
+      if (strstr(resposta, "Taxi chegou ao local") != NULL)
+      {
+        em_viagem = true;
+      }
+      else if (strstr(resposta, "concluido") != NULL || strstr(resposta, "cancelado") != NULL)
+      {
+        em_viagem = false;
+      }
+      else if (strcmp(resposta, "terminado") == 0)
       {
         printf("[CLIENTE]: Sessao terminada pelo servidor.\n");
         close(fd_cliente);
@@ -60,6 +72,12 @@ void *thread_envia_pedidos(void *arg)
     }
     pedido.comando[strcspn(pedido.comando, "\n")] = 0;
 
+    if (strncmp(pedido.comando, "agendar", 7) == 0 && em_viagem)
+    {
+      printf("[ERRO] Não pode agendar novo serviço durante uma viagem!\n");
+      continue; // Volta ao início do loop sem enviar nada
+    }
+
     int fd_servidor = abrirFIFO(FIFO_SERVIDOR, true);
     write(fd_servidor, &pedido, sizeof(Pedido));
     close(fd_servidor);
@@ -76,8 +94,8 @@ int main(int argc, char *argv[])
   }
   Cliente cliente;
 
-  int fd_servidor; /* Identificador do FIFO do servidor */
-  int fd_cliente;  /* Identificador do FIFO do cliente */
+  int fd_servidor; // FIFO do servidor
+  int fd_cliente;  // FIFO do cliente
 
   char mensagem[MAX_CHARACTERS];
   cliente.pid_cliente = getpid();    // obter o PID do cliente
@@ -90,9 +108,8 @@ int main(int argc, char *argv[])
   strcpy(fifo_cliente_nome, cliente.fifo_cliente); // guardar o nome do FIFO do cliente para a thread
 
   printf("[CLIENTE]: Fazendo pedido de conexão para o servidor...\n");
-  sleep(2);
 
-  // abrir o FIFO do servidor para escrever o cliente de conexao
+  // abrir o FIFO do servidor para enviar o Cliente
   fd_servidor = abrirFIFO(FIFO_SERVIDOR, true);
 
   write(fd_servidor, &cliente, sizeof(Cliente));
@@ -110,12 +127,13 @@ int main(int argc, char *argv[])
   if (strcmp(mensagem, REGISTADO) == 0)
   {
     printf("[CLIENTE]: Registo efetuado com sucesso.\n");
-    pthread_t thread_recebe, thread_envia;
 
+    pthread_t thread_recebe, thread_envia;
     // criar threads para receber mensagens e enviar pedidos
     pthread_create(&thread_recebe, NULL, thread_recebe_mensagens, NULL);
     pthread_create(&thread_envia, NULL, thread_envia_pedidos, &cliente);
 
+    pthread_join(thread_recebe, NULL);
     pthread_join(thread_envia, NULL);
   }
   else if (strcmp(mensagem, NEGADO) == 0)

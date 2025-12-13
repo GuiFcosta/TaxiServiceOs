@@ -12,7 +12,6 @@
 // Pipes nomeados
 #define FIFO_SERVIDOR "/tmp/fifo_servidor"
 #define FIFO_CLIENTE "/tmp/fifo_cliente_%d"
-#define FIFO_VEICULO "/tmp/fifo_veiculo_%d"
 
 // Constantes
 #define MAX_UTILIZADORES 30
@@ -63,7 +62,7 @@ typedef struct
     int id_veiculo;
 } Veiculo;
 
-// Funções do Cliente
+// Threads do Cliente
 void* thread_recebe_mensagens(void* arg);
 void* thread_envia_pedidos(void* arg);
 
