@@ -15,7 +15,7 @@
 
 // Constantes
 #define MAX_UTILIZADORES 30
-#define NVEICULOS 10
+#define MAX_VEICULOS 10 // Usar variável de ambiente NVEICULOS para definir este valor
 #define MAX_USERNAME_TAM 64
 #define MAX_CHARACTERS 256
 #define MAX_ARGUMENTOS 5
