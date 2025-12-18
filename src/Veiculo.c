@@ -14,7 +14,7 @@ void handle_sigusr1(int sig)
     char msg[] = "Servico cancelado pelo controlador (SIGUSR1).";
     write(fd_cliente, msg, strlen(msg) + 1);
 
-    printf("TERMINADO ABORTADO\n");
+    printf("ABORTADO\n");
     fflush(stdout);
 
     close(fd_cliente);
