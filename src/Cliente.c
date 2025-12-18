@@ -61,6 +61,7 @@ void *thread_envia_pedidos(void *arg)
            "- agendar <hora> <local> <distancia>\n"
            "- consultar <id>\n"
            "- cancelar <id>\n"
+           "- sair\n"
            "- terminar\n");
 
     pthread_mutex_unlock(&lock);
